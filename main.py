@@ -1,1 +1,1 @@
-print("hello open SW prject")
+print("hello world.")
