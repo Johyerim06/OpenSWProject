@@ -26,26 +26,34 @@ export default function QRScanPage() {
     setQrValue(phoneScanUrl)
 
     // 연결 상태 확인 (핸드폰 비디오 프레임 전송 시작 여부 확인)
+    let checkCount = 0
     const checkConnection = setInterval(async () => {
       try {
+        checkCount++
         // 핸드폰에서 비디오 프레임이 전송되는지 확인
         const videoResponse = await fetch(`/api/phone/video?deviceId=${generatedDeviceId}`)
         const videoResult = await videoResponse.json()
         
         if (videoResult.success && videoResult.imageData) {
           // 핸드폰 비디오 프레임이 전송되기 시작하면 연결된 것으로 간주
+          console.log('핸드폰 연결 확인됨! YOLO-SCAN 페이지로 이동합니다.')
           setIsConnected(true)
           setConnected(generatedDeviceId)
           clearInterval(checkConnection)
-          // 연결 성공 후 다음 페이지로 이동
-          setTimeout(() => {
-            router.push('/yolo-scan')
-          }, 1000)
+          // 연결 성공 후 즉시 다음 페이지로 이동
+          router.push('/yolo-scan')
+        } else {
+          if (checkCount % 3 === 0) {
+            console.log(`핸드폰 연결 대기 중... (${checkCount}초 경과)`)
+          }
         }
       } catch (error) {
         console.error('연결 확인 오류:', error)
+        if (checkCount % 3 === 0) {
+          console.log(`연결 확인 실패, 재시도 중... (${checkCount}초 경과)`)
+        }
       }
-    }, 1000) // 1초마다 확인
+    }, 500) // 0.5초마다 확인 (더 빠른 응답)
 
     return () => clearInterval(checkConnection)
   }, [router, setConnected])

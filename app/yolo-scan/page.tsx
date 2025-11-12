@@ -3,6 +3,14 @@
 import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useStore } from '@/lib/store'
+import {
+  createWebRTCPeerConnection,
+  createOffer,
+  sendOfferToServer,
+  sendIceCandidateToServer,
+  pollForAnswer,
+  pollForIceCandidates,
+} from './webrtc'
 
 export default function YOLOScanPage() {
   const router = useRouter()
@@ -12,9 +20,12 @@ export default function YOLOScanPage() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [detectedCount, setDetectedCount] = useState<number | null>(null)
   const [phoneVideoFrame, setPhoneVideoFrame] = useState<string | null>(null)
+  const [webrtcStream, setWebrtcStream] = useState<MediaStream | null>(null)
   const videoRef = useRef<HTMLVideoElement>(null)
+  const webrtcVideoRef = useRef<HTMLVideoElement>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
+  const pcRef = useRef<RTCPeerConnection | null>(null)
 
   // 카메라 시작
   const startCamera = async () => {
@@ -35,7 +46,23 @@ export default function YOLOScanPage() {
 
   // 사진 촬영
   const capturePhoto = async () => {
-    // 핸드폰 비디오가 있으면 그것을 사용
+    // WebRTC 스트림이 있으면 그것을 사용 (최우선)
+    if (webrtcStream && webrtcVideoRef.current && canvasRef.current) {
+      const video = webrtcVideoRef.current
+      const canvas = canvasRef.current
+      const ctx = canvas.getContext('2d')
+      
+      if (ctx) {
+        canvas.width = video.videoWidth
+        canvas.height = video.videoHeight
+        ctx.drawImage(video, 0, 0)
+        const imageData = canvas.toDataURL('image/jpeg', 0.9)
+        setCapturedImage(imageData)
+        return
+      }
+    }
+
+    // Base64 이미지가 있으면 그것을 사용
     if (phoneVideoFrame) {
       setCapturedImage(phoneVideoFrame)
       return
@@ -112,40 +139,103 @@ export default function YOLOScanPage() {
     startCamera()
   }
 
-  // 핸드폰 비디오 프레임 받기 (QR 연동된 경우)
+  // WebRTC 연결 시작 (QR 연동된 경우)
   useEffect(() => {
     if (!isConnected || !deviceId) return
 
-    let retryCount = 0
-    const maxRetries = 15 // 3초 동안 시도 (200ms * 15)
+    let stopAnswerPolling: (() => void) | null = null
+    let stopIcePolling: (() => void) | null = null
 
-    const pollVideoFrame = setInterval(async () => {
+    const initWebRTC = async () => {
       try {
-        const response = await fetch(`/api/phone/video?deviceId=${deviceId}`)
-        const result = await response.json()
-
-        if (result.success && result.imageData) {
-          setPhoneVideoFrame(result.imageData)
-          retryCount = 0 // 성공하면 리셋
-        } else {
-          retryCount++
-          // 일정 횟수 이상 실패하면 로컬 카메라 시작
-          if (retryCount >= maxRetries && !phoneVideoFrame) {
-            console.log('핸드폰 비디오를 받지 못해 로컬 카메라 시작')
-            startCamera()
+        console.log('WebRTC 연결 시작...')
+        
+        // WebRTC PeerConnection 생성
+        const pc = await createWebRTCPeerConnection(
+          deviceId,
+          (stream) => {
+            console.log('WebRTC 스트림 수신 성공!')
+            setWebrtcStream(stream)
+            if (webrtcVideoRef.current) {
+              webrtcVideoRef.current.srcObject = stream
+            }
+            // WebRTC 연결 성공 시 로컬 카메라 중지
+            if (streamRef.current) {
+              streamRef.current.getTracks().forEach((track: MediaStreamTrack) => track.stop())
+              streamRef.current = null
+              setIsCapturing(false)
+            }
+          },
+          async (candidate) => {
+            await sendIceCandidateToServer(deviceId, candidate)
           }
-        }
-      } catch (error) {
-        console.error('비디오 프레임 폴링 오류:', error)
-        retryCount++
-        if (retryCount >= maxRetries && !phoneVideoFrame) {
-          console.log('핸드폰 비디오 연결 실패, 로컬 카메라 시작')
-          startCamera()
-        }
-      }
-    }, 200) // 200ms마다 확인 (약 5fps)
+        )
 
-    return () => clearInterval(pollVideoFrame)
+        pcRef.current = pc
+
+        // Offer 생성 및 전송
+        const offer = await createOffer(deviceId, pc)
+        await sendOfferToServer(deviceId, offer)
+
+        // Answer 폴링 시작
+        stopAnswerPolling = await pollForAnswer(deviceId, pc, async (answer) => {
+          console.log('WebRTC Answer 수신 완료')
+        })
+
+        // ICE Candidate 폴링 시작
+        stopIcePolling = await pollForIceCandidates(deviceId, pc, 'phone')
+      } catch (error) {
+        console.error('WebRTC 초기화 실패:', error)
+        // WebRTC 실패 시 base64 방식으로 폴백
+        startBase64Polling()
+      }
+    }
+
+    // Base64 폴링 (WebRTC 폴백용)
+    let retryCount = 0
+    const maxRetries = 15
+    let pollVideoFrame: NodeJS.Timeout | null = null
+
+    const startBase64Polling = () => {
+      pollVideoFrame = setInterval(async () => {
+        try {
+          const response = await fetch(`/api/phone/video?deviceId=${deviceId}`)
+          const result = await response.json()
+
+          if (result.success && result.imageData) {
+            console.log('핸드폰 비디오 프레임 수신 성공 (base64)')
+            setPhoneVideoFrame(result.imageData)
+            retryCount = 0
+            if (streamRef.current) {
+              streamRef.current.getTracks().forEach((track: MediaStreamTrack) => track.stop())
+              streamRef.current = null
+              setIsCapturing(false)
+            }
+          } else {
+            retryCount++
+            if (retryCount >= maxRetries && !phoneVideoFrame && !isCapturing) {
+              console.log('핸드폰 비디오를 받지 못해 로컬 카메라 시작')
+              startCamera()
+            }
+          }
+        } catch (error) {
+          console.error('비디오 프레임 폴링 오류:', error)
+        }
+      }, 200)
+    }
+
+    // WebRTC 먼저 시도
+    initWebRTC()
+
+    return () => {
+      if (stopAnswerPolling) stopAnswerPolling()
+      if (stopIcePolling) stopIcePolling()
+      if (pollVideoFrame) clearInterval(pollVideoFrame)
+      if (pcRef.current) {
+        pcRef.current.close()
+        pcRef.current = null
+      }
+    }
   }, [isConnected, deviceId])
 
   // QR 연동 상태 확인 및 카메라 시작 (핸드폰 비디오가 없을 때만)
@@ -237,30 +327,53 @@ export default function YOLOScanPage() {
           ) : !capturedImage ? (
             // 카메라 미리보기 (QR 연동된 경우)
             <div className="relative w-full h-[600px] bg-black flex items-center justify-center">
-              {phoneVideoFrame ? (
-                // 핸드폰 카메라 화면 표시
-                <img
-                  src={phoneVideoFrame}
-                  alt="핸드폰 카메라 화면"
-                  className="w-full h-full object-contain"
-                />
-              ) : (
-                // 로컬 카메라 화면
-                <>
+              {webrtcStream ? (
+                // WebRTC 스트림 표시 (최우선)
+                <div className="w-full h-full relative">
                   <video
-                    ref={videoRef}
+                    ref={webrtcVideoRef}
                     autoPlay
                     playsInline
-                    className="w-full h-full object-cover"
+                    className="w-full h-full object-contain"
                   />
-                  {!isCapturing && (
+                  <div className="absolute top-2 left-2 bg-green-500 text-white px-2 py-1 rounded text-xs">
+                    WebRTC 연결됨 (실시간)
+                  </div>
+                </div>
+              ) : phoneVideoFrame ? (
+                // Base64 이미지 표시 (WebRTC 폴백)
+                <div className="w-full h-full relative">
+                  <img
+                    src={phoneVideoFrame}
+                    alt="핸드폰 카메라 화면"
+                    className="w-full h-full object-contain"
+                    key={phoneVideoFrame.substring(0, 50)} // 강제 리렌더링
+                  />
+                  <div className="absolute top-2 left-2 bg-yellow-500 text-white px-2 py-1 rounded text-xs">
+                    Base64 연결됨
+                  </div>
+                </div>
+              ) : (
+                // 로컬 카메라 화면 (핸드폰 비디오가 없을 때만)
+                <>
+                  {isCapturing ? (
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      className="w-full h-full object-cover"
+                    />
+                  ) : (
                     <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
-                      <button
-                        onClick={startCamera}
-                        className="px-6 py-3 bg-white text-black rounded-lg font-semibold hover:bg-gray-100"
-                      >
-                        카메라 시작
-                      </button>
+                      <div className="text-center">
+                        <p className="text-white mb-4">핸드폰 카메라 연결 대기 중...</p>
+                        <button
+                          onClick={startCamera}
+                          className="px-6 py-3 bg-white text-black rounded-lg font-semibold hover:bg-gray-100"
+                        >
+                          로컬 카메라 사용
+                        </button>
+                      </div>
                     </div>
                   )}
                 </>

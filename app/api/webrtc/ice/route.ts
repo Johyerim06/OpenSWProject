@@ -14,13 +14,15 @@ export async function POST(request: Request) {
       )
     }
 
-    // ICE Candidate 저장
-    if (!iceCandidates.has(deviceId)) {
-      iceCandidates.set(deviceId, [])
+    // ICE Candidate 저장 (deviceId에 타입 포함)
+    const candidateKey = deviceId.includes('-') ? deviceId : `${deviceId}-${type || 'default'}`
+    
+    if (!iceCandidates.has(candidateKey)) {
+      iceCandidates.set(candidateKey, [])
     }
 
     if (type === 'add') {
-      iceCandidates.get(deviceId)!.push(candidate)
+      iceCandidates.get(candidateKey)!.push(candidate)
     }
 
     return NextResponse.json({
