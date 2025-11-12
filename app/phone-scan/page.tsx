@@ -55,7 +55,7 @@ export default function PhoneScanPage() {
 
       // 바코드 스캔 시작
       const ctrl = await reader.decodeFromVideoDevice(
-        undefined,
+        null,
         videoRef.current,
         async (result) => {
           if (result) {
