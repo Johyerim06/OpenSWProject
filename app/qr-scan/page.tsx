@@ -25,15 +25,15 @@ export default function QRScanPage() {
     console.log('QR 코드 생성:', phoneScanUrl)
     setQrValue(phoneScanUrl)
 
-    // 연결 상태 확인 (핸드폰에서 바코드 스캔 시작 여부 확인)
+    // 연결 상태 확인 (핸드폰 비디오 프레임 전송 시작 여부 확인)
     const checkConnection = setInterval(async () => {
       try {
-        // 핸드폰에서 바코드를 스캔했는지 확인
-        const response = await fetch(`/api/phone/barcode?deviceId=${generatedDeviceId}`)
-        const result = await response.json()
+        // 핸드폰에서 비디오 프레임이 전송되는지 확인
+        const videoResponse = await fetch(`/api/phone/video?deviceId=${generatedDeviceId}`)
+        const videoResult = await videoResponse.json()
         
-        if (result.success) {
-          // 첫 바코드가 스캔되면 연결된 것으로 간주
+        if (videoResult.success && videoResult.imageData) {
+          // 핸드폰 비디오 프레임이 전송되기 시작하면 연결된 것으로 간주
           setIsConnected(true)
           setConnected(generatedDeviceId)
           clearInterval(checkConnection)
@@ -45,7 +45,7 @@ export default function QRScanPage() {
       } catch (error) {
         console.error('연결 확인 오류:', error)
       }
-    }, 2000) // 2초마다 확인
+    }, 1000) // 1초마다 확인
 
     return () => clearInterval(checkConnection)
   }, [router, setConnected])

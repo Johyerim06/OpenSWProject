@@ -116,6 +116,9 @@ export default function YOLOScanPage() {
   useEffect(() => {
     if (!isConnected || !deviceId) return
 
+    let retryCount = 0
+    const maxRetries = 15 // 3초 동안 시도 (200ms * 15)
+
     const pollVideoFrame = setInterval(async () => {
       try {
         const response = await fetch(`/api/phone/video?deviceId=${deviceId}`)
@@ -123,29 +126,39 @@ export default function YOLOScanPage() {
 
         if (result.success && result.imageData) {
           setPhoneVideoFrame(result.imageData)
+          retryCount = 0 // 성공하면 리셋
+        } else {
+          retryCount++
+          // 일정 횟수 이상 실패하면 로컬 카메라 시작
+          if (retryCount >= maxRetries && !phoneVideoFrame) {
+            console.log('핸드폰 비디오를 받지 못해 로컬 카메라 시작')
+            startCamera()
+          }
         }
       } catch (error) {
         console.error('비디오 프레임 폴링 오류:', error)
+        retryCount++
+        if (retryCount >= maxRetries && !phoneVideoFrame) {
+          console.log('핸드폰 비디오 연결 실패, 로컬 카메라 시작')
+          startCamera()
+        }
       }
     }, 200) // 200ms마다 확인 (약 5fps)
 
     return () => clearInterval(pollVideoFrame)
   }, [isConnected, deviceId])
 
-  // QR 연동 상태 확인 및 카메라 시작
+  // QR 연동 상태 확인 및 카메라 시작 (핸드폰 비디오가 없을 때만)
   useEffect(() => {
-    // QR 연동이 되어 있고 핸드폰 비디오가 없으면 로컬 카메라 시작
-    if (isConnected && !phoneVideoFrame) {
-      startCamera()
-    }
-    
+    // QR 연동이 되어 있지만 핸드폰 비디오가 없고, 로컬 카메라도 시작되지 않은 경우
+    // 이 useEffect는 핸드폰 비디오 폴링에서 처리하므로 여기서는 제거
     return () => {
       // 컴포넌트 언마운트 시 카메라 정리
       if (streamRef.current) {
         streamRef.current.getTracks().forEach((track: MediaStreamTrack) => track.stop())
       }
     }
-  }, [isConnected, phoneVideoFrame])
+  }, [])
 
   return (
     <main className="min-h-screen" style={{ backgroundColor: '#f8fafc' }}>
