@@ -285,34 +285,16 @@ export default function YOLOScanPage() {
           // 로컬 state에만 저장 (Zustand에는 저장하지 않음)
           setWebrtcStream(stream)
           
-          // 비디오 요소에 스트림 할당 (빠른 재시도)
-          const assignStream = () => {
-            if (webrtcVideoRef.current) {
-              console.log('비디오 요소에 WebRTC 스트림 재할당')
-              webrtcVideoRef.current.srcObject = stream
-              const playPromise = webrtcVideoRef.current.play()
-              if (playPromise !== undefined) {
-                playPromise
-                  .then(() => {
-                    console.log('✅ WebRTC 비디오 재생 성공 (재연결)')
-                  })
-                  .catch((error) => {
-                    console.error('❌ 비디오 재생 오류:', error)
-                    // 빠른 재시도
-                    setTimeout(() => {
-                      if (webrtcVideoRef.current && webrtcVideoRef.current.srcObject === stream) {
-                        webrtcVideoRef.current.play().catch((err) => {
-                          console.error('재시도 후 재생 오류:', err)
-                        })
-                      }
-                    }, 200)
-                  })
-              }
-            } else {
-              setTimeout(assignStream, 50)
-            }
-          }
-          assignStream()
+          // 스트림을 state에 설정하면 useEffect에서 자동으로 비디오 요소에 할당됨
+          console.log('WebRTC 스트림 재연결 - state에 저장:', {
+            streamId: stream.id,
+            streamActive: stream.active,
+            tracks: stream.getTracks().map(t => ({
+              kind: t.kind,
+              enabled: t.enabled,
+              readyState: t.readyState
+            }))
+          })
         },
         async (candidate) => {
           await sendIceCandidateToServer(targetDeviceId, candidate)
@@ -413,42 +395,17 @@ export default function YOLOScanPage() {
             // 로컬 state에만 저장 (Zustand에는 저장하지 않음)
             setWebrtcStream(stream)
             
-            // 비디오 요소에 스트림 할당 (즉시 시도)
-            const assignStream = () => {
-              if (webrtcVideoRef.current) {
-                console.log('비디오 요소에 WebRTC 스트림 할당 시도:', {
-                  videoElement: !!webrtcVideoRef.current,
-                  streamId: stream.id,
-                  streamActive: stream.active
-                })
-                webrtcVideoRef.current.srcObject = stream
-                
-                // 강제로 재생 시도
-                const playPromise = webrtcVideoRef.current.play()
-                if (playPromise !== undefined) {
-                  playPromise
-                    .then(() => {
-                      console.log('✅ WebRTC 비디오 재생 성공')
-                    })
-                    .catch((error) => {
-                      console.error('❌ WebRTC 비디오 재생 오류:', error)
-                      // 재생 실패 시 다시 시도 (빠른 재시도)
-                      setTimeout(() => {
-                        if (webrtcVideoRef.current && webrtcVideoRef.current.srcObject === stream) {
-                          webrtcVideoRef.current.play().catch((err) => {
-                            console.error('재시도 후 재생 오류:', err)
-                          })
-                        }
-                      }, 200)
-                    })
-                }
-              } else {
-                // 비디오 요소가 아직 준비되지 않았으면 잠시 후 재시도 (빠른 재시도)
-                console.log('비디오 요소가 아직 준비되지 않음, 50ms 후 재시도')
-                setTimeout(assignStream, 50)
-              }
-            }
-            assignStream()
+            // 스트림을 state에 설정하면 useEffect에서 자동으로 비디오 요소에 할당됨
+            // 여기서는 state만 설정하고, 실제 할당은 useEffect에서 처리
+            console.log('WebRTC 스트림 수신 - state에 저장:', {
+              streamId: stream.id,
+              streamActive: stream.active,
+              tracks: stream.getTracks().map(t => ({
+                kind: t.kind,
+                enabled: t.enabled,
+                readyState: t.readyState
+              }))
+            })
             
             // WebRTC 연결 성공 시 로컬 카메라 중지
             if (streamRef.current) {
@@ -508,41 +465,83 @@ export default function YOLOScanPage() {
     }
   }, [isConnected, deviceId])
 
-  // WebRTC 스트림이 변경될 때 비디오 요소에 할당
+  // WebRTC 스트림이 변경될 때 비디오 요소에 할당 (강화된 버전)
   useEffect(() => {
-    if (webrtcStream && webrtcVideoRef.current) {
-      console.log('WebRTC 스트림 변경 감지 - 비디오 요소에 할당:', {
+    if (!webrtcStream) return
+
+    let retryCount = 0
+    const maxRetries = 20 // 최대 2초 동안 재시도 (100ms * 20)
+
+    const assignStreamToVideo = () => {
+      if (!webrtcVideoRef.current) {
+        // 비디오 요소가 아직 준비되지 않았으면 재시도
+        retryCount++
+        if (retryCount < maxRetries) {
+          console.log(`비디오 요소가 아직 준비되지 않음, 100ms 후 재시도 (${retryCount}/${maxRetries})`)
+          setTimeout(assignStreamToVideo, 100)
+        } else {
+          console.error('비디오 요소를 찾을 수 없음 (최대 재시도 횟수 초과)')
+        }
+        return
+      }
+
+      const videoElement = webrtcVideoRef.current
+      
+      console.log('WebRTC 스트림 할당 시도:', {
         streamId: webrtcStream.id,
         streamActive: webrtcStream.active,
-        videoElement: !!webrtcVideoRef.current,
-        hasSrcObject: !!webrtcVideoRef.current.srcObject
+        videoElement: !!videoElement,
+        hasSrcObject: !!videoElement.srcObject,
+        currentSrcObject: videoElement.srcObject === webrtcStream ? '같음' : '다름',
+        tracks: webrtcStream.getTracks().map(t => ({
+          kind: t.kind,
+          enabled: t.enabled,
+          readyState: t.readyState
+        }))
       })
       
       // 기존 스트림과 다를 때만 할당
-      if (webrtcVideoRef.current.srcObject !== webrtcStream) {
-        webrtcVideoRef.current.srcObject = webrtcStream
-        
-        // 재생 시도
-        const playPromise = webrtcVideoRef.current.play()
-        if (playPromise !== undefined) {
-          playPromise
-            .then(() => {
-              console.log('✅ WebRTC 비디오 재생 성공 (useEffect)')
-            })
-            .catch((error) => {
-              console.error('❌ WebRTC 비디오 재생 오류 (useEffect):', error)
-            })
+      if (videoElement.srcObject !== webrtcStream) {
+        videoElement.srcObject = webrtcStream
+        console.log('✅ 비디오 요소에 스트림 할당 완료')
+      }
+      
+      // 스트림 할당 후 재생 강제 시도
+      const tryPlay = () => {
+        if (!videoElement || videoElement.srcObject !== webrtcStream) {
+          console.warn('비디오 요소가 없거나 스트림이 변경됨, 재생 취소')
+          return
         }
-      } else {
-        // 같은 스트림이면 재생만 확인
-        if (webrtcVideoRef.current.paused) {
-          console.log('비디오가 일시정지 상태, 재생 시도')
-          webrtcVideoRef.current.play().catch((error) => {
-            console.error('재생 오류:', error)
-          })
+
+        if (videoElement.paused || videoElement.readyState < 2) {
+          const playPromise = videoElement.play()
+          if (playPromise !== undefined) {
+            playPromise
+              .then(() => {
+                console.log('✅ WebRTC 비디오 재생 성공 (useEffect)')
+              })
+              .catch((error) => {
+                console.error('❌ WebRTC 비디오 재생 오류 (useEffect):', error)
+                // 재생 실패 시 재시도 (최대 3번)
+                setTimeout(() => {
+                  if (videoElement && videoElement.srcObject === webrtcStream && videoElement.paused) {
+                    videoElement.play().catch((err) => {
+                      console.error('재시도 후 재생 오류:', err)
+                    })
+                  }
+                }, 500)
+              })
+          }
+        } else {
+          console.log('비디오가 이미 재생 중')
         }
       }
+      
+      // 약간의 지연 후 재생 시도 (스트림이 준비될 시간 확보)
+      setTimeout(tryPlay, 200)
     }
+
+    assignStreamToVideo()
   }, [webrtcStream])
 
   // QR 연동 상태 확인 및 카메라 시작 (핸드폰 비디오가 없을 때만)
@@ -645,7 +644,8 @@ export default function YOLOScanPage() {
                     muted
                     className="w-full h-full object-contain"
                     style={{ 
-                      backgroundColor: '#000'
+                      backgroundColor: '#000',
+                      transform: 'scaleX(-1)' // 미러링
                     }}
                     onLoadedMetadata={() => {
                       console.log('✅ 비디오 메타데이터 로드 완료', {
