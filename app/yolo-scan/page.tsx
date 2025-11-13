@@ -27,6 +27,7 @@ export default function YOLOScanPage() {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const streamRef = useRef<MediaStream | null>(null)
   const pcRef = useRef<RTCPeerConnection | null>(null)
+  const base64PollingIntervalRef = useRef<NodeJS.Timeout | null>(null)
 
   // 카메라 시작
   const startCamera = async () => {
@@ -178,6 +179,55 @@ export default function YOLOScanPage() {
     }
   }
 
+  // Base64 폴링 시작 함수 (외부에서 호출 가능하도록)
+  const startBase64Polling = () => {
+    if (!deviceId) return
+    
+    // 기존 폴링이 있으면 중지
+    if (base64PollingIntervalRef.current) {
+      clearInterval(base64PollingIntervalRef.current)
+      base64PollingIntervalRef.current = null
+    }
+    
+    console.log('Base64 비디오 프레임 폴링 시작:', deviceId)
+    let retryCount = 0
+    const maxRetries = 30 // 6초 동안 시도 (200ms * 30)
+    
+    base64PollingIntervalRef.current = setInterval(async () => {
+      try {
+        const response = await fetch(`/api/phone/video?deviceId=${deviceId}`)
+        const result = await response.json()
+
+        if (result.success && result.imageData) {
+          console.log('✅ 핸드폰 비디오 프레임 수신 성공 (base64)')
+          setPhoneVideoFrame(result.imageData)
+          retryCount = 0
+          if (streamRef.current) {
+            streamRef.current.getTracks().forEach((track: MediaStreamTrack) => track.stop())
+            streamRef.current = null
+            setIsCapturing(false)
+          }
+        } else {
+          retryCount++
+          if (retryCount % 10 === 0) {
+            console.log(`핸드폰 비디오 프레임 대기 중... (시도 ${retryCount}/${maxRetries})`, result)
+          }
+          if (retryCount >= maxRetries && !phoneVideoFrame && !isCapturing && !webrtcStream) {
+            console.log('핸드폰 비디오를 받지 못해 로컬 카메라 시작')
+            startCamera()
+          }
+        }
+      } catch (error) {
+        retryCount++
+        console.error('비디오 프레임 폴링 오류:', error)
+        if (retryCount >= maxRetries && !phoneVideoFrame && !isCapturing && !webrtcStream) {
+          console.log('핸드폰 비디오 연결 실패, 로컬 카메라 시작')
+          startCamera()
+        }
+      }
+    }, 200)
+  }
+
   // 다시 촬영
   const retakePhoto = () => {
     console.log('다시 촬영 버튼 클릭 - 핸드폰 카메라 연결 상태 확인:', {
@@ -202,6 +252,21 @@ export default function YOLOScanPage() {
         streamRef.current.getTracks().forEach((track: MediaStreamTrack) => track.stop())
         streamRef.current = null
         setIsCapturing(false)
+      }
+      
+      // WebRTC 스트림이 있으면 비디오 요소에 다시 할당
+      if (webrtcStream && webrtcVideoRef.current) {
+        console.log('WebRTC 스트림을 비디오 요소에 다시 할당')
+        webrtcVideoRef.current.srcObject = webrtcStream
+        webrtcVideoRef.current.play().catch((error) => {
+          console.error('비디오 재생 오류:', error)
+        })
+      }
+      
+      // Base64 비디오가 있으면 폴링 재시작하여 최신 프레임 받기
+      if (phoneVideoFrame || !webrtcStream) {
+        console.log('Base64 비디오 폴링 재시작')
+        startBase64Polling()
       }
     }
   }
@@ -271,48 +336,6 @@ export default function YOLOScanPage() {
       }
     }
 
-    // Base64 폴링 (WebRTC 폴백용 및 기본 방식)
-    let retryCount = 0
-    const maxRetries = 30 // 6초 동안 시도 (200ms * 30)
-    let pollVideoFrame: NodeJS.Timeout | null = null
-
-    const startBase64Polling = () => {
-      console.log('Base64 비디오 프레임 폴링 시작:', deviceId)
-      pollVideoFrame = setInterval(async () => {
-        try {
-          const response = await fetch(`/api/phone/video?deviceId=${deviceId}`)
-          const result = await response.json()
-
-          if (result.success && result.imageData) {
-            console.log('✅ 핸드폰 비디오 프레임 수신 성공 (base64)')
-            setPhoneVideoFrame(result.imageData)
-            retryCount = 0
-            if (streamRef.current) {
-              streamRef.current.getTracks().forEach((track: MediaStreamTrack) => track.stop())
-              streamRef.current = null
-              setIsCapturing(false)
-            }
-          } else {
-            retryCount++
-            if (retryCount % 10 === 0) {
-              console.log(`핸드폰 비디오 프레임 대기 중... (시도 ${retryCount}/${maxRetries})`, result)
-            }
-            if (retryCount >= maxRetries && !phoneVideoFrame && !isCapturing && !webrtcStream) {
-              console.log('핸드폰 비디오를 받지 못해 로컬 카메라 시작')
-              startCamera()
-            }
-          }
-        } catch (error) {
-          retryCount++
-          console.error('비디오 프레임 폴링 오류:', error)
-          if (retryCount >= maxRetries && !phoneVideoFrame && !isCapturing && !webrtcStream) {
-            console.log('핸드폰 비디오 연결 실패, 로컬 카메라 시작')
-            startCamera()
-          }
-        }
-      }, 200)
-    }
-
     // Base64 폴링도 함께 시작 (WebRTC와 병행)
     startBase64Polling()
     
@@ -322,7 +345,10 @@ export default function YOLOScanPage() {
     return () => {
       if (stopAnswerPolling) stopAnswerPolling()
       if (stopIcePolling) stopIcePolling()
-      if (pollVideoFrame) clearInterval(pollVideoFrame)
+      if (base64PollingIntervalRef.current) {
+        clearInterval(base64PollingIntervalRef.current)
+        base64PollingIntervalRef.current = null
+      }
       if (pcRef.current) {
         pcRef.current.close()
         pcRef.current = null
