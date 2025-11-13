@@ -145,7 +145,15 @@ export default function PhoneScanPage() {
             ? window.location.origin 
             : ''
           
-          fetch(`${baseUrl}/api/phone/video`, {
+          const apiUrl = `${baseUrl}/api/phone/video`
+          console.log(`비디오 프레임 전송 시도 (${frameCount}번째):`, {
+            apiUrl,
+            deviceId,
+            imageDataLength: imageData.length,
+            videoSize: `${videoRef.current.videoWidth}x${videoRef.current.videoHeight}`
+          })
+          
+          fetch(apiUrl, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
@@ -156,20 +164,32 @@ export default function PhoneScanPage() {
           .then(response => {
             if (response.ok) {
               if (frameCount === 1) {
-                console.log('첫 비디오 프레임 전송 성공!')
+                console.log('✅ 첫 비디오 프레임 전송 성공!')
               }
             } else {
-              console.error('비디오 프레임 전송 실패:', response.status, response.statusText)
+              console.error('❌ 비디오 프레임 전송 실패:', {
+                status: response.status,
+                statusText: response.statusText,
+                url: apiUrl
+              })
             }
             return response.json()
           })
           .then(result => {
-            if (!result.success && frameCount === 1) {
-              console.error('비디오 프레임 저장 실패:', result.message)
+            if (frameCount === 1) {
+              if (result.success) {
+                console.log('✅ 비디오 프레임 저장 성공:', result.message)
+              } else {
+                console.error('❌ 비디오 프레임 저장 실패:', result.message)
+              }
             }
           })
           .catch(error => {
-            console.error('비디오 프레임 전송 오류:', error)
+            console.error('❌ 비디오 프레임 전송 오류:', {
+              error: error.message,
+              url: apiUrl,
+              deviceId
+            })
           })
         } catch (error) {
           console.error('비디오 프레임 캡처 오류:', error)
@@ -244,16 +264,22 @@ export default function PhoneScanPage() {
 
       // 즉시 첫 프레임 전송 (연결 확인용, WebRTC 폴백용)
       // 비디오가 완전히 준비된 후 전송
-      setTimeout(() => {
+      const startVideoFrameSending = () => {
         sendVideoFrame()
         console.log('핸드폰 카메라 연결 완료! 비디오 프레임 전송 시작:', deviceId)
-      }, 500) // 0.5초 후 첫 프레임 전송
-      
-      // 200ms마다 비디오 프레임 전송 (약 5fps) - WebRTC 실패 시 사용
-      if (!videoInterval) {
-        videoInterval = setInterval(sendVideoFrame, 200)
-        console.log('비디오 프레임 전송 인터벌 시작')
+        console.log('API 엔드포인트:', `${typeof window !== 'undefined' ? window.location.origin : ''}/api/phone/video`)
+        
+        // 200ms마다 비디오 프레임 전송 (약 5fps) - WebRTC 실패 시 사용
+        if (!videoInterval) {
+          videoInterval = setInterval(() => {
+            sendVideoFrame()
+          }, 200)
+          console.log('비디오 프레임 전송 인터벌 시작 (200ms 간격)')
+        }
       }
+      
+      // 비디오 준비 후 첫 프레임 전송 시작
+      setTimeout(startVideoFrameSending, 500) // 0.5초 후 첫 프레임 전송
 
       // 바코드 스캔 설정
       const hints = new Map()
