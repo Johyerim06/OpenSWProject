@@ -119,40 +119,61 @@ export default function PhoneScanPage() {
         throw new Error('Canvas context를 가져올 수 없습니다.')
       }
 
+      let frameCount = 0
       const sendVideoFrame = () => {
-        if (!videoRef.current || !ctx) return
-        
-        // 비디오 크기가 0이면 스킵
-        if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0) {
+        if (!videoRef.current || !ctx) {
+          console.warn('비디오 프레임 전송 실패: videoRef 또는 ctx가 없음')
           return
         }
         
-        canvas.width = videoRef.current.videoWidth
-        canvas.height = videoRef.current.videoHeight
-        ctx.drawImage(videoRef.current, 0, 0)
+        // 비디오 크기가 0이면 스킵
+        if (videoRef.current.videoWidth === 0 || videoRef.current.videoHeight === 0) {
+          console.warn('비디오 크기가 0입니다. 대기 중...')
+          return
+        }
         
-        const imageData = canvas.toDataURL('image/jpeg', 0.7)
-        
-        // 웹으로 비디오 프레임 전송
-        const baseUrl = typeof window !== 'undefined' 
-          ? window.location.origin 
-          : ''
-        fetch(`${baseUrl}/api/phone/video`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            deviceId,
-            imageData,
-          }),
-        })
-        .then(response => {
-          if (!response.ok) {
-            console.error('비디오 프레임 전송 실패:', response.status)
-          }
-        })
-        .catch(error => {
-          console.error('비디오 프레임 전송 오류:', error)
-        })
+        try {
+          canvas.width = videoRef.current.videoWidth
+          canvas.height = videoRef.current.videoHeight
+          ctx.drawImage(videoRef.current, 0, 0)
+          
+          const imageData = canvas.toDataURL('image/jpeg', 0.7)
+          frameCount++
+          
+          // 웹으로 비디오 프레임 전송
+          const baseUrl = typeof window !== 'undefined' 
+            ? window.location.origin 
+            : ''
+          
+          fetch(`${baseUrl}/api/phone/video`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              deviceId,
+              imageData,
+            }),
+          })
+          .then(response => {
+            if (response.ok) {
+              if (frameCount === 1) {
+                console.log('첫 비디오 프레임 전송 성공!')
+              }
+            } else {
+              console.error('비디오 프레임 전송 실패:', response.status, response.statusText)
+            }
+            return response.json()
+          })
+          .then(result => {
+            if (!result.success && frameCount === 1) {
+              console.error('비디오 프레임 저장 실패:', result.message)
+            }
+          })
+          .catch(error => {
+            console.error('비디오 프레임 전송 오류:', error)
+          })
+        } catch (error) {
+          console.error('비디오 프레임 캡처 오류:', error)
+        }
       }
 
       // WebRTC 연결 시도 (서버리스 환경)
@@ -222,12 +243,16 @@ export default function PhoneScanPage() {
       }
 
       // 즉시 첫 프레임 전송 (연결 확인용, WebRTC 폴백용)
-      sendVideoFrame()
-      console.log('핸드폰 카메라 연결 완료! 비디오 프레임 전송 시작:', deviceId)
+      // 비디오가 완전히 준비된 후 전송
+      setTimeout(() => {
+        sendVideoFrame()
+        console.log('핸드폰 카메라 연결 완료! 비디오 프레임 전송 시작:', deviceId)
+      }, 500) // 0.5초 후 첫 프레임 전송
       
       // 200ms마다 비디오 프레임 전송 (약 5fps) - WebRTC 실패 시 사용
       if (!videoInterval) {
         videoInterval = setInterval(sendVideoFrame, 200)
+        console.log('비디오 프레임 전송 인터벌 시작')
       }
 
       // 바코드 스캔 설정
