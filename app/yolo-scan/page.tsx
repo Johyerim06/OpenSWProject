@@ -250,19 +250,20 @@ export default function YOLOScanPage() {
       }
     }
 
-    // Base64 폴링 (WebRTC 폴백용)
+    // Base64 폴링 (WebRTC 폴백용 및 기본 방식)
     let retryCount = 0
-    const maxRetries = 15
+    const maxRetries = 30 // 6초 동안 시도 (200ms * 30)
     let pollVideoFrame: NodeJS.Timeout | null = null
 
     const startBase64Polling = () => {
+      console.log('Base64 비디오 프레임 폴링 시작:', deviceId)
       pollVideoFrame = setInterval(async () => {
         try {
           const response = await fetch(`/api/phone/video?deviceId=${deviceId}`)
           const result = await response.json()
 
           if (result.success && result.imageData) {
-            console.log('핸드폰 비디오 프레임 수신 성공 (base64)')
+            console.log('✅ 핸드폰 비디오 프레임 수신 성공 (base64)')
             setPhoneVideoFrame(result.imageData)
             retryCount = 0
             if (streamRef.current) {
@@ -272,17 +273,28 @@ export default function YOLOScanPage() {
             }
           } else {
             retryCount++
-            if (retryCount >= maxRetries && !phoneVideoFrame && !isCapturing) {
+            if (retryCount % 10 === 0) {
+              console.log(`핸드폰 비디오 프레임 대기 중... (시도 ${retryCount}/${maxRetries})`, result)
+            }
+            if (retryCount >= maxRetries && !phoneVideoFrame && !isCapturing && !webrtcStream) {
               console.log('핸드폰 비디오를 받지 못해 로컬 카메라 시작')
               startCamera()
             }
           }
         } catch (error) {
+          retryCount++
           console.error('비디오 프레임 폴링 오류:', error)
+          if (retryCount >= maxRetries && !phoneVideoFrame && !isCapturing && !webrtcStream) {
+            console.log('핸드폰 비디오 연결 실패, 로컬 카메라 시작')
+            startCamera()
+          }
         }
       }, 200)
     }
 
+    // Base64 폴링도 함께 시작 (WebRTC와 병행)
+    startBase64Polling()
+    
     // WebRTC 먼저 시도
     initWebRTC()
 
@@ -502,7 +514,14 @@ export default function YOLOScanPage() {
                   ) : (
                     <div className="absolute inset-0 flex items-center justify-center bg-black bg-opacity-50">
                       <div className="text-center">
-                        <p className="text-white mb-4">핸드폰 카메라 연결 대기 중...</p>
+                        <p className="text-white mb-2 text-lg">핸드폰 카메라 연결 대기 중...</p>
+                        <p className="text-white mb-4 text-sm opacity-75">
+                          WebRTC: {webrtcStream ? '✅ 연결됨' : '❌ 대기 중'} | 
+                          Base64: {phoneVideoFrame ? '✅ 수신됨' : '❌ 대기 중'}
+                        </p>
+                        <p className="text-white mb-4 text-xs opacity-50">
+                          Device ID: {deviceId}
+                        </p>
                         <button
                           onClick={startCamera}
                           className="px-6 py-3 bg-white text-black rounded-lg font-semibold hover:bg-gray-100"
