@@ -12,6 +12,7 @@ export async function createWebRTCPeerConnection(
 ): Promise<RTCPeerConnection> {
   const pc = new RTCPeerConnection({
     iceServers: STUN_SERVERS,
+    iceCandidatePoolSize: 10, // ICE candidate 풀 크기 증가 (빠른 연결)
   })
 
   // 로컬 스트림의 모든 트랙을 PeerConnection에 추가
@@ -47,7 +48,9 @@ export async function createAnswer(
   offer: RTCSessionDescriptionInit
 ): Promise<RTCSessionDescriptionInit> {
   await pc.setRemoteDescription(new RTCSessionDescription(offer))
-  const answer = await pc.createAnswer()
+  const answer = await pc.createAnswer({
+    iceRestart: false, // ICE 재시작 방지 (빠른 연결)
+  })
   await pc.setLocalDescription(answer)
   
   console.log('Answer 생성 완료:', answer.type)
@@ -95,6 +98,7 @@ export async function pollForOffer(
   onOfferReceived: (offer: RTCSessionDescriptionInit) => void
 ): Promise<() => void> {
   let isPolling = true
+  let timeoutId: NodeJS.Timeout | null = null
 
   const poll = async () => {
     if (!isPolling) return
@@ -108,6 +112,7 @@ export async function pollForOffer(
         console.log('Offer 수신:', result.offer.type)
         onOfferReceived(result.offer)
         isPolling = false
+        if (timeoutId) clearTimeout(timeoutId)
         return
       }
     } catch (error) {
@@ -115,14 +120,16 @@ export async function pollForOffer(
     }
 
     if (isPolling) {
-      setTimeout(poll, 1000) // 1초마다 확인
+      timeoutId = setTimeout(poll, 200) // 200ms마다 확인 (빠른 응답)
     }
   }
 
+  // 즉시 첫 폴링 실행
   poll()
 
   return () => {
     isPolling = false
+    if (timeoutId) clearTimeout(timeoutId)
   }
 }
 

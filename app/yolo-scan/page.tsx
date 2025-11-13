@@ -285,16 +285,31 @@ export default function YOLOScanPage() {
           // 로컬 state에만 저장 (Zustand에는 저장하지 않음)
           setWebrtcStream(stream)
           
-          // 비디오 요소에 스트림 할당
+          // 비디오 요소에 스트림 할당 (빠른 재시도)
           const assignStream = () => {
             if (webrtcVideoRef.current) {
               console.log('비디오 요소에 WebRTC 스트림 재할당')
               webrtcVideoRef.current.srcObject = stream
-              webrtcVideoRef.current.play().catch((error) => {
-                console.error('비디오 재생 오류:', error)
-              })
+              const playPromise = webrtcVideoRef.current.play()
+              if (playPromise !== undefined) {
+                playPromise
+                  .then(() => {
+                    console.log('✅ WebRTC 비디오 재생 성공 (재연결)')
+                  })
+                  .catch((error) => {
+                    console.error('❌ 비디오 재생 오류:', error)
+                    // 빠른 재시도
+                    setTimeout(() => {
+                      if (webrtcVideoRef.current && webrtcVideoRef.current.srcObject === stream) {
+                        webrtcVideoRef.current.play().catch((err) => {
+                          console.error('재시도 후 재생 오류:', err)
+                        })
+                      }
+                    }, 200)
+                  })
+              }
             } else {
-              setTimeout(assignStream, 100)
+              setTimeout(assignStream, 50)
             }
           }
           assignStream()
@@ -366,10 +381,10 @@ export default function YOLOScanPage() {
               console.log('LocalStorage에서 연결 정보 복구됨:', parsed.state.deviceId)
               // store 업데이트
               setConnected(parsed.state.deviceId)
-              // 약간의 지연 후 재연결 (Zustand state가 먼저 복구되도록)
+              // 즉시 재연결 (Zustand state가 먼저 복구되도록 짧은 지연)
               setTimeout(() => {
                 reconnectWebRTC()
-              }, 1000)
+              }, 300)
             }
           } catch (error) {
             console.error('LocalStorage 파싱 오류:', error)
@@ -417,20 +432,20 @@ export default function YOLOScanPage() {
                     })
                     .catch((error) => {
                       console.error('❌ WebRTC 비디오 재생 오류:', error)
-                      // 재생 실패 시 다시 시도
+                      // 재생 실패 시 다시 시도 (빠른 재시도)
                       setTimeout(() => {
                         if (webrtcVideoRef.current && webrtcVideoRef.current.srcObject === stream) {
                           webrtcVideoRef.current.play().catch((err) => {
                             console.error('재시도 후 재생 오류:', err)
                           })
                         }
-                      }, 500)
+                      }, 200)
                     })
                 }
               } else {
-                // 비디오 요소가 아직 준비되지 않았으면 잠시 후 재시도
-                console.log('비디오 요소가 아직 준비되지 않음, 100ms 후 재시도')
-                setTimeout(assignStream, 100)
+                // 비디오 요소가 아직 준비되지 않았으면 잠시 후 재시도 (빠른 재시도)
+                console.log('비디오 요소가 아직 준비되지 않음, 50ms 후 재시도')
+                setTimeout(assignStream, 50)
               }
             }
             assignStream()

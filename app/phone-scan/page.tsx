@@ -240,8 +240,8 @@ export default function PhoneScanPage() {
               }
             }
             
-            // ICE Candidate 폴링 시작
-            const iceInterval = setInterval(pollWebIceCandidates, 500)
+            // ICE Candidate 폴링 시작 (빠른 응답을 위해 간격 단축)
+            const iceInterval = setInterval(pollWebIceCandidates, 150)
             stopIcePolling = () => clearInterval(iceInterval)
             
             // WebRTC 연결 성공 시 base64 전송 중지

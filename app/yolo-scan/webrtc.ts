@@ -12,6 +12,7 @@ export async function createWebRTCPeerConnection(
 ): Promise<RTCPeerConnection> {
   const pc = new RTCPeerConnection({
     iceServers: STUN_SERVERS,
+    iceCandidatePoolSize: 10, // ICE candidate 풀 크기 증가 (빠른 연결)
   })
 
   // 원격 스트림 수신 이벤트 처리
@@ -50,6 +51,7 @@ export async function createOffer(
   const offer = await pc.createOffer({
     offerToReceiveVideo: true,
     offerToReceiveAudio: false,
+    iceRestart: false, // ICE 재시작 방지 (빠른 연결)
   })
   await pc.setLocalDescription(offer)
   
@@ -99,6 +101,7 @@ export async function pollForAnswer(
   onAnswerReceived: (answer: RTCSessionDescriptionInit) => void
 ): Promise<() => void> {
   let isPolling = true
+  let timeoutId: NodeJS.Timeout | null = null
 
   const poll = async () => {
     if (!isPolling) return
@@ -113,6 +116,7 @@ export async function pollForAnswer(
         await pc.setRemoteDescription(new RTCSessionDescription(result.answer))
         onAnswerReceived(result.answer)
         isPolling = false
+        if (timeoutId) clearTimeout(timeoutId)
         return
       }
     } catch (error) {
@@ -120,14 +124,16 @@ export async function pollForAnswer(
     }
 
     if (isPolling) {
-      setTimeout(poll, 1000) // 1초마다 확인
+      timeoutId = setTimeout(poll, 200) // 200ms마다 확인 (빠른 응답)
     }
   }
 
+  // 즉시 첫 폴링 실행
   poll()
 
   return () => {
     isPolling = false
+    if (timeoutId) clearTimeout(timeoutId)
   }
 }
 
@@ -138,6 +144,7 @@ export async function pollForIceCandidates(
 ): Promise<() => void> {
   let isPolling = true
   const processedCandidates = new Set<string>()
+  let timeoutId: NodeJS.Timeout | null = null
 
   const poll = async () => {
     if (!isPolling) return
@@ -166,14 +173,16 @@ export async function pollForIceCandidates(
     }
 
     if (isPolling) {
-      setTimeout(poll, 500) // 0.5초마다 확인
+      timeoutId = setTimeout(poll, 150) // 150ms마다 확인 (빠른 응답)
     }
   }
 
+  // 즉시 첫 폴링 실행
   poll()
 
   return () => {
     isPolling = false
+    if (timeoutId) clearTimeout(timeoutId)
   }
 }
 
