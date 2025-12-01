@@ -260,7 +260,7 @@ export default function YOLOScanPage() {
           setShowManualInput(true)
         } else {
           alert(`객체 탐지 중 오류가 발생했습니다 (${newFailureCount}/3): ${result.message || '알 수 없는 오류'}`)
-          setIsProcessing(false)
+        setIsProcessing(false)
           // 오류 발생 시 촬영된 이미지 리셋하고 카메라 다시 시작
           setCapturedImage(null)
           setDetectedCount(null)
@@ -278,7 +278,7 @@ export default function YOLOScanPage() {
         setShowManualInput(true)
       } else {
         alert(`객체 탐지 중 오류가 발생했습니다 (${newFailureCount}/3)`)
-        setIsProcessing(false)
+      setIsProcessing(false)
         // 오류 발생 시 촬영된 이미지 리셋하고 카메라 다시 시작
         setCapturedImage(null)
         setDetectedCount(null)
@@ -341,9 +341,9 @@ export default function YOLOScanPage() {
       
       if (newFailureCount >= 3) {
         // 3번 실패 시 수동 입력 팝업 표시
-        setIsProcessing(false)
+      setIsProcessing(false)
         setShowManualInput(true)
-      } else {
+        } else {
         alert('객체 탐지 중 오류가 발생했습니다.')
         setIsProcessing(false)
         // 오류 발생 시 촬영된 이미지 리셋하고 카메라 다시 시작
@@ -376,15 +376,15 @@ export default function YOLOScanPage() {
       alert('올바른 숫자를 입력해주세요.')
       return
     }
-    
+
     setDetectedCount(count)
     setYOLOCount(count)
     setShowManualInput(false)
     setFailureCount(0)
     setManualCount('')
-    
+        
     // 다음 페이지로 이동
-    setTimeout(() => {
+        setTimeout(() => {
       router.push('/barcode-scan')
     }, 1500)
   }
@@ -395,8 +395,8 @@ export default function YOLOScanPage() {
     setManualCount('')
     // 다시 촬영 화면으로
     retakePhoto()
-  }
-
+      }
+      
   // 컴포넌트 마운트 시 카메라 자동 시작
   useEffect(() => {
     startCamera()
@@ -470,13 +470,13 @@ export default function YOLOScanPage() {
           {!capturedImage ? (
             // 카메라 미리보기 - video를 항상 렌더하여 ref가 항상 존재하도록
             <div className="relative w-full h-full bg-black flex items-center justify-center" style={{ aspectRatio: '1364/600' }}>
-              <video
+                  <video
                 ref={videoRef}
-                autoPlay
-                playsInline
-                muted
+                    autoPlay
+                    playsInline
+                    muted
                 className="w-full h-full object-cover"
-                style={{
+                    style={{ 
                   opacity: isCapturing ? 1 : 0,
                   transition: 'opacity 160ms ease'
                 }}
