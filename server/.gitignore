@@ -8,6 +8,7 @@ env/
 ENV/
 .venv
 *.pt
+!models/best.pt
 *.onnx
 *.pth
 
