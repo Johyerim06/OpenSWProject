@@ -228,7 +228,10 @@ export default function YOLOScanPage() {
       const formData = new FormData()
       formData.append('image', blob, 'cart-image.jpg')
 
-      console.log('YOLO API로 이미지 전송 중...')
+      console.log('📤 YOLO API로 이미지 전송 중...', {
+        blobSize: `${(blob.size / 1024).toFixed(2)} KB`,
+        blobType: blob.type,
+      })
 
       // YOLO API 호출
       const apiResponse = await fetch('/api/yolo', {
@@ -236,15 +239,36 @@ export default function YOLOScanPage() {
         body: formData,
       })
 
+      console.log('📥 API 응답 상태:', {
+        status: apiResponse.status,
+        statusText: apiResponse.statusText,
+        ok: apiResponse.ok,
+      })
+
       const result = await apiResponse.json()
 
-      console.log('YOLO API 응답:', result)
+      console.log('📋 YOLO API 응답 데이터:', {
+        success: result.success,
+        count: result.count,
+        hasResultImage: !!result.resultImage,
+        error: result.error,
+        message: result.message,
+        fullResponse: result,
+      })
 
       if (result.success) {
+        // 0개 탐지 시 수동 입력 팝업 표시
+        if (result.count === 0) {
+          setDetectedCount(0)
+          setIsProcessing(false)
+          setShowManualInput(true)
+          return
+        }
+        
         setDetectedCount(result.count)
         setYOLOCount(result.count)
         setFailureCount(0) // 성공 시 실패 횟수 리셋
-        console.log(`YOLO 탐지 완료: ${result.count}개 객체 발견`)
+        console.log(`YOLO 탐지 완료: ${result.count}개 상품 발견`)
         // 다음 페이지로 이동
         setTimeout(() => {
           router.push('/barcode-scan')
@@ -259,7 +283,7 @@ export default function YOLOScanPage() {
           setIsProcessing(false)
           setShowManualInput(true)
         } else {
-          alert(`객체 탐지 중 오류가 발생했습니다 (${newFailureCount}/3): ${result.message || '알 수 없는 오류'}`)
+          alert(`상품 탐지 중 오류가 발생했습니다 (${newFailureCount}/3): ${result.message || '알 수 없는 오류'}`)
         setIsProcessing(false)
           // 오류 발생 시 촬영된 이미지 리셋하고 카메라 다시 시작
           setCapturedImage(null)
@@ -277,7 +301,7 @@ export default function YOLOScanPage() {
         setIsProcessing(false)
         setShowManualInput(true)
       } else {
-        alert(`객체 탐지 중 오류가 발생했습니다 (${newFailureCount}/3)`)
+        alert(`상품 탐지 중 오류가 발생했습니다 (${newFailureCount}/3)`)
       setIsProcessing(false)
         // 오류 발생 시 촬영된 이미지 리셋하고 카메라 다시 시작
         setCapturedImage(null)
@@ -310,6 +334,14 @@ export default function YOLOScanPage() {
       const result = await apiResponse.json()
 
       if (result.success) {
+        // 0개 탐지 시 수동 입력 팝업 표시
+        if (result.count === 0) {
+          setDetectedCount(0)
+          setIsProcessing(false)
+          setShowManualInput(true)
+          return
+        }
+        
         setDetectedCount(result.count)
         setYOLOCount(result.count)
         setFailureCount(0) // 성공 시 실패 횟수 리셋
@@ -326,7 +358,7 @@ export default function YOLOScanPage() {
           setIsProcessing(false)
           setShowManualInput(true)
         } else {
-          alert(`객체 탐지 중 오류가 발생했습니다 (${newFailureCount}/3): ${result.message || '알 수 없는 오류'}`)
+          alert(`상품 탐지 중 오류가 발생했습니다 (${newFailureCount}/3): ${result.message || '알 수 없는 오류'}`)
           setIsProcessing(false)
           // 오류 발생 시 촬영된 이미지 리셋하고 카메라 다시 시작
           setCapturedImage(null)
@@ -344,7 +376,7 @@ export default function YOLOScanPage() {
       setIsProcessing(false)
         setShowManualInput(true)
         } else {
-        alert('객체 탐지 중 오류가 발생했습니다.')
+        alert('상품 탐지 중 오류가 발생했습니다.')
         setIsProcessing(false)
         // 오류 발생 시 촬영된 이미지 리셋하고 카메라 다시 시작
         setCapturedImage(null)
@@ -501,7 +533,7 @@ export default function YOLOScanPage() {
               {isProcessing && (
                 <div className="absolute inset-0 bg-black bg-opacity-50 flex items-center justify-center">
                   <div className="text-white text-xl font-semibold">
-                    객체 탐지 중...
+                    상품 탐지 중...
                   </div>
                 </div>
               )}
@@ -509,7 +541,7 @@ export default function YOLOScanPage() {
               {/* 탐지 결과 표시 */}
               {detectedCount !== null && !isProcessing && (
                 <div className="absolute top-4 left-4 bg-green-500 text-white px-4 py-2 rounded-lg font-semibold">
-                  탐지된 객체: {detectedCount}개
+                  탐지된 상품: {detectedCount}개
                 </div>
               )}
             </div>
@@ -524,13 +556,22 @@ export default function YOLOScanPage() {
       {showManualInput && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
           <div className="bg-white rounded-[20px] p-8 max-w-md w-full mx-4">
-            <h2 className="text-2xl font-bold mb-4 text-center">객체 수 직접 입력</h2>
+            <h2 className="text-2xl font-bold mb-4 text-center">상품 개수 직접 입력</h2>
             <p className="text-gray-600 mb-6 text-center">
-              자동 탐지가 3번 실패했습니다.<br />
-              객체 수를 직접 입력해주세요.
+              {detectedCount === 0 || detectedCount === null ? (
+                <>
+                  탐지된 상품이 없습니다.<br />
+                  결제하실 상품 개수를 입력해주세요.
+                </>
+              ) : (
+                <>
+                  자동 탐지가 3번 실패했습니다.<br />
+                  상품 개수를 직접 입력해주세요.
+                </>
+              )}
             </p>
             <div className="mb-6">
-              <label className="block text-sm font-semibold mb-2">객체 수</label>
+              <label className="block text-sm font-semibold mb-2">상품 개수</label>
               <input
                 type="number"
                 min="0"
