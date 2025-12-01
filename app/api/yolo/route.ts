@@ -1,9 +1,8 @@
 import { NextResponse } from 'next/server'
 import { YOLODetection } from '@/types'
 
-// YOLO 팀에서 제공하는 API 엔드포인트로 요청을 전달
-// 실제 YOLO API URL은 환경 변수로 설정 필요
-const YOLO_API_URL = process.env.YOLO_API_URL || 'http://localhost:8000/api/yolo/detect'
+// Hugging Face Gradio API 엔드포인트
+const HF_API_URL = process.env.HF_YOLO_API_URL || 'https://koro277-yolo-api.hf.space/run/predict'
 
 export async function POST(request: Request) {
   try {
@@ -17,26 +16,38 @@ export async function POST(request: Request) {
       )
     }
 
-    // YOLO 팀의 API로 이미지 전송
-    const yoloFormData = new FormData()
-    yoloFormData.append('image', image)
+    // Hugging Face Gradio API 형식에 맞춰 FormData 생성
+    // 필드명: 'img' (Gradio 요구사항)
+    const hfFormData = new FormData()
+    hfFormData.append('img', image)
 
-    const response = await fetch(YOLO_API_URL, {
+    // Hugging Face API 호출
+    const response = await fetch(HF_API_URL, {
       method: 'POST',
-      body: yoloFormData,
+      body: hfFormData,
     })
 
     if (!response.ok) {
-      throw new Error('YOLO API 요청 실패')
+      const errorText = await response.text()
+      console.error('Hugging Face API 오류:', response.status, errorText)
+      throw new Error(`Hugging Face API 요청 실패: ${response.status}`)
     }
 
-    const result: YOLODetection = await response.json()
+    const hfResult = await response.json()
 
+    // Hugging Face Gradio 응답 구조 파싱
+    // json.data[0] → base64 이미지
+    // json.data[1] → count (탐지 개수)
+    const resultImageBase64 = hfResult.data?.[0]
+    const count = hfResult.data?.[1] || 0
+
+    // 응답 형식을 기존 YOLODetection과 호환되도록 변환
     return NextResponse.json({
       success: true,
-      count: result.count,
-      objects: result.objects,
-    })
+      count: typeof count === 'number' ? count : parseInt(count) || 0,
+      objects: [], // Hugging Face API는 객체 상세 정보를 제공하지 않음
+      resultImage: resultImageBase64, // base64 이미지 (선택사항)
+    } as YOLODetection & { resultImage?: string })
   } catch (error) {
     console.error('YOLO API 오류:', error)
     return NextResponse.json(
